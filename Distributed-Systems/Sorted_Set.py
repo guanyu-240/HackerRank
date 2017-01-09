@@ -1,17 +1,16 @@
-
-# NOTE: Use this path to create the UDS Server socket
 import socket
 import struct
-import functools
 import threading
 
-FMT = "!L"
+FMT = "!I"
 
 data = {}
 
 def add_score(s, key, score):
-    if s not in data: data[s] = {key: score}
-    else: data[s][key] = score
+    if s not in data: 
+        data[s] = {}
+    target_set = data[s]
+    target_set[key] = score
         
 def get_value(s, key):
     if s not in data:
@@ -36,7 +35,9 @@ def get_range(sets, lower, upper):
                 v = tmp_set[k]
                 if lower<=v<=upper: ret.append([k,v])
     ret.sort()
-    return functools.reduce(lambda x, y: x + y, ret)
+    ret = reduce(lambda x, y: x + y, ret, [])
+    # Note, initializer param should not be removed!!!
+    return ret
     
 def remove(s, key):
     if s not in data: return
