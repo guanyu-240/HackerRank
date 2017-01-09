@@ -1,83 +1,94 @@
+
 # NOTE: Use this path to create the UDS Server socket
 import socket
 import struct
+import functools
 import threading
 
-SERVER_SOCKET_PATH = "./socket";
-BACKLOG=8
-FMT = "!I"
+FMT = "!L"
 
 data = {}
 
 def add_score(s, key, score):
     if s not in data: data[s] = {key: score}
     else: data[s][key] = score
-    return None
         
 def get_value(s, key):
-    if s not in data: return 0
-    else:
-        ret = data[s].get(key)
-        return ret if ret else 0
+    if s not in data:
+        return 0
+    target_set = data[s]
+    if key in target_set:  
+        return target_set[key]
+    return 0
     
-def get_range(args):
-    sets = args[:-3]
-    lower,upper = args[-2:]
+def get_size(s):
+    if s in data:
+        return len(data[s])
+    else:
+        return 0
+    
+def get_range(sets, lower, upper):
     ret = []
     for s in sets:
-        if s not in data: continue
-        for k,v in data[s].items():
-            if lower<=v<=upper: ret.append([k,v])
+        if s in data:
+            tmp_set = data[s]
+            for k in tmp_set:
+                v = tmp_set[k]
+                if lower<=v<=upper: ret.append([k,v])
     ret.sort()
-    ret = reduce(lambda x,y: x+y, ret)    
-    return ret
+    return functools.reduce(lambda x, y: x + y, ret)
     
 def remove(s, key):
-    target = data.get(s)
-    if target and key in target:
+    if s not in data: return
+    target = data[s]
+    if key in target:
         del target[key]
-    return None
 
 def write_ret(conn, x):
-    if x is None:
-        conn.send(struct.pack(FMT, 0))
-    elif isinstance(x, int):
-        conn.send(struct.pack(FMT, 1))
-        conn.send(struct.pack(FMT, x))
-    elif isinstance(x, list):
-        conn.send(struct.pack(FMT, len(x)))
-        for e in x: conn.send(struct.pack(FMT, e))
+    conn.send(struct.pack(FMT, len(x)))
+    for e in x: 
+        conn.send(struct.pack(FMT, e))
     
-def get_cmd_from_socket(conn):
+def get_cmd_from_socket(conn, cmd):
     n = struct.unpack(FMT, conn.recv(4))[0]
-    ret = []
-    for _ in xrange(n):
-        ret.append(struct.unpack(FMT, conn.recv(4))[0])
-    return ret
+    for _ in range(n):
+        cmd.append(struct.unpack(FMT, conn.recv(4))[0])
+
 
 def process_connection(conn):
     while True:
-        cmd = get_cmd_from_socket(conn)
-        if cmd[0] == 1:
-            write_ret(conn, add_score(*cmd[1:]))
-        elif cmd[0] == 2:
-            write_ret(conn, remove(*cmd[1:]))
-        elif cmd[0] == 3:
-            write_ret(conn, (0 if cmd[1] not in data else len(data[cmd[1]])))
-        elif cmd[0] == 4:
-            write_ret(conn, get_value(*cmd[1:]))
-        elif cmd[0] == 5:
-            write_ret(conn, get_range(cmd[1:]))
-        elif cmd[0] == 6:
+        cmd = []
+        get_cmd_from_socket(conn, cmd)
+        cmd_type = cmd[0]
+        ret = []
+        if cmd_type == 1:
+            add_score(*cmd[1:])
+        elif cmd_type == 2:
+            remove(*cmd[1:])
+        elif cmd_type == 3:
+            ret.append(get_size(*cmd[1:]))
+        elif cmd_type == 4:
+            ret.append(get_value(*cmd[1:]))
+        elif cmd_type == 5:
+            sets = cmd[1:-3]
+            lower,upper = cmd[-2:]
+            ret = get_range(sets, lower, upper)
+        elif cmd_type == 6:
             conn.close() 
             break
+        write_ret(conn, ret)
+
+        
+# NOTE: Use this path to create the UDS Server socket
+SERVER_SOCKET_PATH = "./socket";
+BACKLOG=10
 
 def main():
     sock = socket.socket(socket.AF_UNIX)
     sock.bind(SERVER_SOCKET_PATH)
     sock.listen(BACKLOG)
     while True:
-        conn,addr = sock.accept()
+        conn = sock.accept()[0]
         t = threading.Thread(target=process_connection, args=(conn,))
         t.start()
     sock.close()
